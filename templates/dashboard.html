@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Sales Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body>
+<h2>Live Sales Dashboard</h2>
+
+<div id="live-status">
+    <strong>Live Status:</strong> <span id="status-text">{{ live_status }}</span>
+</div>
+
+<div id="messages">
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+    <ul>
+        {% for message in messages %}
+        <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+    {% endwith %}
+</div>
+
+<div style="text-align: center; margin-bottom: 20px;">
+    <form action="{{ url_for('start_live') }}" method="post" style="display:inline-block;">
+        <button type="submit" class="button">Start Live</button>
+    </form>
+    <form action="{{ url_for('clear_buyers') }}" method="post" style="display:inline-block;">
+        <button type="submit" class="button">Clear Current Buyers</button>
+    </form>
+    <form action="{{ url_for('sync_csv') }}" method="post" style="display:inline-block;">
+        <button type="submit" class="button">Sync CSV to Postgres</button>
+    </form>
+</div>
+
+
+<div id="buyers" class="tabcontent" style="display:block;">
+    <h3>Confirmed Buyers (from CSV log)</h3>
+    <table id="confirmed-buyers-table">
+        <tr>
+            <th>User ID</th>
+            <th>Username</th>
+            <th>Price</th>
+            <th>Timestamp</th>
+        </tr>
+        {% for sale in sales %}
+        <tr>
+            <td>{{ sale[0] }}</td>
+            <td>{{ sale[1] }}</td>
+            <td>{{ sale[2] }}</td>
+            <td>{{ sale[3] }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <h3>Current Buyers (Waiting for confirmation)</h3>
+    <table id="buyers-table">
+        <tr>
+            <th>User ID</th>
+            <th>Username</th>
+            <th>Price</th>
+            <th>Timestamp</th>
+            <th>Action</th>
+        </tr>
+        {% for buyer in current_buyers %}
+        <tr>
+            <td>{{ buyer.user_id }}</td>
+            <td>{{ buyer.username }}</td>
+            <td>{{ buyer.price }}</td>
+            <td>{{ buyer.timestamp }}</td>
+            <td>
+                <form action="{{ url_for('confirm') }}" method="post" class="confirm-form">
+                    <input type="hidden" name="index" value="{{ loop.index0 }}">
+                    <button type="submit" class="button">Confirm</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+
+<script>
+    // Use SSE to update the dashboard in real time
+    const evtSource = new EventSource("/dashboard_stream");
+    evtSource.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        document.getElementById('status-text').innerText = data.live_status;
+
+        // Update Confirmed Buyers Table (latest first)
+        let confirmedTable = document.getElementById('confirmed-buyers-table');
+        confirmedTable.innerHTML = `<tr>
+        <th>User ID</th>
+        <th>Username</th>
+        <th>Price</th>
+        <th>Timestamp</th>
+      </tr>`;
+        data.sales.slice().reverse().forEach((sale) => {
+            let row = confirmedTable.insertRow();
+            row.insertCell(0).innerText = sale[0];
+            row.insertCell(1).innerText = sale[1];
+            row.insertCell(2).innerText = sale[2];
+            row.insertCell(3).innerText = sale[3];
+        });
+
+        // Update Current Buyers Table (latest first)
+        let buyersTable = document.getElementById('buyers-table');
+        buyersTable.innerHTML = `<tr>
+        <th>User ID</th>
+        <th>Username</th>
+        <th>Price</th>
+        <th>Timestamp</th>
+        <th>Action</th>
+      </tr>`;
+        data.current_buyers.slice().reverse().forEach((buyer, index) => {
+            let row = buyersTable.insertRow();
+            row.insertCell(0).innerText = buyer.user_id;
+            row.insertCell(1).innerText = buyer.username;
+            row.insertCell(2).innerText = buyer.price;
+            row.insertCell(3).innerText = buyer.timestamp;
+            let actionCell = row.insertCell(4);
+            actionCell.innerHTML = `<form action="/confirm" method="post">
+          <input type="hidden" name="index" value="${index}">
+          <button type="submit" class="button">Confirm</button>
+        </form>`;
+        });
+
+        // Update All Comments Table (latest first)
+        let commentsTable = document.getElementById('comments-table');
+        commentsTable.innerHTML = `<tr>
+        <th>User ID</th>
+        <th>Username</th>
+        <th>Comment</th>
+        <th>Timestamp</th>
+      </tr>`;
+        data.all_comments.slice().reverse().forEach(comment => {
+            let row = commentsTable.insertRow();
+            row.insertCell(0).innerText = comment.user_id;
+            row.insertCell(1).innerText = comment.username;
+            row.insertCell(2).innerText = comment.comment;
+            row.insertCell(3).innerText = comment.timestamp;
+        });
+    };
+</script>
+
+<script>
+    // Function to print label using a hidden iframe
+    function printLabel(buyer) {
+        const printUrl = "{{ url_for('print_label_page') }}" +
+            "?user_id=" + encodeURIComponent(buyer.user_id) +
+            "&username=" + encodeURIComponent(buyer.username) +
+            "&price=" + encodeURIComponent(buyer.price);
+
+        // Create an iframe that is off-screen
+        let iframe = document.createElement('iframe');
+        iframe.style.position = 'absolute';
+        iframe.style.top = '-1000px';
+        iframe.style.left = '-1000px';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = '0';
+        document.body.appendChild(iframe);
+
+        // Once the iframe loads, wait briefly then trigger printing
+        iframe.onload = function() {
+            setTimeout(function() {
+                iframe.contentWindow.focus();
+                iframe.contentWindow.print();
+                // Remove the iframe after printing
+                setTimeout(() => { document.body.removeChild(iframe); }, 1000);
+            }, 500);
+        };
+        iframe.src = printUrl;
+    }
+
+    // Intercept confirm form submission to use AJAX then print automatically
+    document.addEventListener("DOMContentLoaded", function(){
+        document.querySelectorAll(".confirm-form").forEach(function(form){
+            form.addEventListener("submit", function(e){
+                e.preventDefault(); // Prevent normal submission
+                const formData = new FormData(form);
+                fetch(form.action, {
+                    method: "POST",
+                    headers: {"X-Requested-With": "XMLHttpRequest"},
+                    body: formData
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if(data.confirmed) {
+                            const buyer = data.confirmed;
+                            // Automatically trigger printing using the hidden iframe method
+                            printLabel(buyer);
+                        }
+                    })
+                    .catch(error => console.error("Error confirming buyer:", error));
+            });
+        });
+    });
+</script>
+
+
+</body>
+</html>
