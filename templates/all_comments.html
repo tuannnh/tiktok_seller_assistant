@@ -8,14 +8,9 @@
 </head>
 <body>
 <h2>All Comments (Live Updates)</h2>
-
-<!-- Clear All Comments Button -->
 <div style="text-align: center; margin-bottom: 20px;">
-    <form action="{{ url_for('clear_comments') }}" method="post">
-        <button type="submit" class="button">Clear All Comments</button>
-    </form>
+    <a href="{{ url_for('dashboard') }}" class="button">Back to Dashboard</a>
 </div>
-
 <table id="comments-table">
     <tr>
         <th>User ID</th>
@@ -38,7 +33,7 @@
     evtSource.onmessage = function(e) {
         const comment = JSON.parse(e.data);
         const table = document.getElementById("comments-table");
-        // Insert new row at index 1 so latest comments appear on top
+        // Insert new row at index 1 so the latest comment is on top
         const newRow = table.insertRow(1);
         newRow.insertCell(0).innerText = comment.user_id;
         newRow.insertCell(1).innerText = comment.username;
